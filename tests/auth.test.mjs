@@ -94,7 +94,7 @@ test('failed login leaves chat closed and resets the loading state', async () =>
   assert.equal(store.getState().isSigningIn, false);
 });
 
-test('stores backend user details in memory and partitions history by backend ID', async () => {
+test('persists backend user details and partitions history by backend ID', async () => {
   global.fetch = async () => reply(sample);
   await store.getState().signIn('sample', 'password');
   assert.equal(store.getState().user.email, sample.email);
@@ -110,9 +110,11 @@ test('stores backend user details in memory and partitions history by backend ID
   await store.getState().signIn('renamed-username', 'password');
   assert.equal(selectCurrentWorkspace(store.getState()).conversations.length, 1);
   const persisted = JSON.parse(storage.get('aster-chat-workspace'));
-  assert.deepEqual(Object.keys(persisted.state), ['workspaces']);
+  assert.deepEqual(Object.keys(persisted.state), ['workspaces', 'user']);
+  assert.equal(persisted.state.user.email, sample.email);
+  assert.equal(persisted.state.user.name, sample.name);
   assert.equal(JSON.stringify(persisted).includes('password'), false);
-  assert.equal(JSON.stringify(persisted).includes(sample.email), false);
+  assert.equal(JSON.stringify(persisted).includes('access_token'), false);
 });
 
 test('old stored profiles cannot restore a signed-in session', async () => {
@@ -120,6 +122,7 @@ test('old stored profiles cannot restore a signed-in session', async () => {
   const legacy = { user: { id: 'sample', username: 'sample', displayName: 'Sample' }, workspaces: {} };
   assert.equal(options.migrate(legacy, 1).user, undefined);
   assert.equal(options.merge(legacy, store.getState()).user, null);
+  storage.set('aster-chat-workspace', JSON.stringify({ state: legacy, version: 1 }));
   await store.persist.rehydrate();
   assert.equal(store.getState().user, null);
 });
@@ -134,4 +137,49 @@ test('signing out while login is pending cannot reopen chat', async () => {
   await pending;
   assert.equal(store.getState().user, null);
   assert.equal(store.getState().isSigningIn, false);
+});
+
+test('restores saved API user details after reload and removes them on sign-out', async () => {
+  global.fetch = async () => reply(sample);
+  await store.getState().signIn('sample', 'password');
+  store.getState().sendMessage('Keep this chat');
+  const saved = storage.get('aster-chat-workspace');
+  const history = JSON.parse(saved).state.workspaces;
+  store.setState({ user: null });
+  storage.set('aster-chat-workspace', saved);
+  await store.persist.rehydrate();
+  assert.equal(store.getState().user.id, sample.id);
+  assert.equal(store.getState().user.email, sample.email);
+  store.getState().signOut();
+  const signedOut = JSON.parse(storage.get('aster-chat-workspace'));
+  assert.equal('user' in signedOut.state, false);
+  assert.equal(JSON.stringify(signedOut).includes(sample.email), false);
+  assert.deepEqual(signedOut.state.workspaces, history);
+});
+
+test('ignores malformed profiles and strips unexpected persisted credentials', () => {
+  const options = store.persist.getOptions();
+  const invalid = options.merge({ user: { id: 'invalid' } }, store.getState());
+  assert.equal(invalid.user, null);
+  assert.match(invalid.storageError, /invalid/);
+  const restored = options.merge({ user: { ...sample, username: 'sample', password: 'secret', access_token: 'secret' } }, store.getState());
+  assert.equal(restored.user.id, sample.id);
+  assert.equal('password' in restored.user, false);
+  assert.equal('access_token' in restored.user, false);
+});
+
+test('sign-out clears memory and reports storage failures visibly', async () => {
+  global.fetch = async () => reply(sample);
+  await store.getState().signIn('sample', 'password');
+  const setItem = global.localStorage.setItem;
+  global.localStorage.setItem = () => { throw new Error('Storage unavailable'); };
+  try {
+    store.getState().signOut();
+    assert.equal(store.getState().user, null);
+    assert.match(store.getState().storageError, /may remain after sign-out/);
+  } finally {
+    global.localStorage.setItem = setItem;
+    store.getState().signOut();
+    store.setState({ storageError: null });
+  }
 });

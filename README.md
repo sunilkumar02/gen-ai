@@ -33,7 +33,7 @@ UI components are kept under `features`; workspace behavior and browser persiste
 ## Login and local persistence
 
 - Login posts `{ "username": "…", "password": "<UTF-8 Base64>" }` to `/auth/login`. Only a successful response with valid user details opens chat. A 403 keeps the login screen open with an error.
-- The returned `id`, `email`, `name`, `created_at`, and `updated_at` are stored in Zustand memory for the current session. No password or encoded password is persisted. Reloading requires signing in again because no session-validation endpoint or token contract has been provided.
+- The returned `id`, `email`, `name`, `created_at`, and `updated_at` are saved in Zustand and browser localStorage, then restored after reload. Signing out removes the saved profile and clears the current user. Passwords, encoded passwords, and tokens are never persisted. A restored profile is local UI state, not a server-verified session.
 - Conversations remain in this browser's `localStorage`, partitioned by the backend user ID. They do not sync across devices. Old prototype histories are retained under their old keys but are not assigned to API users based on a typed username.
 - Light and dark themes are available on login and in the chat header. The initial theme follows the system preference; a manual choice is saved in this browser.
 - Assistant replies are illustrative placeholders from `src/lib/chat/mock-assistant.ts`; they are not AI-generated.

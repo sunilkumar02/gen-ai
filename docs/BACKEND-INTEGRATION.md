@@ -36,7 +36,7 @@ The payload keys are `username` and `password`. A successful response is a top-l
 
 The API module validates all five nonempty string fields and timestamps at runtime, copies only documented fields, and rejects invalid JSON, malformed success objects, and empty responses. HTTP 403 (and 401) displays a credential error. Network/CORS failures and other server failures display actionable errors. The form disables duplicate submissions while loading.
 
-The chat store holds returned user details in memory and opens chat only after successful validation. It does not persist passwords, Base64 passwords, user details, or tokens. Only conversation history is stored locally, partitioned by backend user ID. Old prototype sessions cannot restore access. Reloading requires login again because the supplied contract has no session-check, logout, refresh, cookie, or token behavior. Backend authorization must protect any future authenticated API endpoints.
+The chat store holds returned user details in memory and browser localStorage after successful API response validation. It never persists passwords, Base64 passwords, tokens, or unexpected response fields. Reloading restores a well-formed saved profile into the local chat UI; this does not verify a backend session. Older persisted prototype profiles are discarded during migration. Signing out clears the user in memory and removes the saved profile while preserving conversation history and theme preference. Storage write failures are shown, including failed removal on sign-out. Conversation history remains browser-local and partitioned by backend user ID. The supplied contract has no session-check, server-side logout, refresh, cookie, or token behavior, so backend authorization must protect future authenticated API endpoints.
 
 ## Request boundary
 
@@ -44,7 +44,7 @@ Keep requests behind `apiRequest<T>()` in `src/lib/api/client.ts`. It centralize
 
 ## Remaining integration
 
-- Confirm session lifecycle, token/cookie handling, expiration, server-side logout, and a session-validation endpoint before restoring logins across reloads.
+- Confirm session lifecycle, token/cookie handling, expiration, server-side logout, and a session-validation endpoint before treating restored profiles as verified API sessions.
 - Define the chat endpoint, streaming behavior, and server-authorized conversation ownership before replacing `src/lib/chat/mock-assistant.ts`.
 - Decide whether history should stay browser-local or move to the backend, and migrate local histories deliberately.
 - Run `npm test` for mocked login success, Unicode encoding, failures, malformed responses, session gating, and per-user history checks. Live verification needs a running backend and valid test credentials.

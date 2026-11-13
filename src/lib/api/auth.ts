@@ -6,7 +6,7 @@ function encodePassword(password: string): string {
   return btoa(Array.from(new TextEncoder().encode(password), (byte) => String.fromCharCode(byte)).join(""));
 }
 
-function isAuthUser(value: unknown): value is AuthUser {
+export function isAuthUser(value: unknown): value is AuthUser {
   if (!value || typeof value !== "object") return false;
   const user = value as Record<string, unknown>;
   return ["id", "email", "name", "created_at", "updated_at"].every(
