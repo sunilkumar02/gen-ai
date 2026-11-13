@@ -1,4 +1,4 @@
-# Aster documentation
+# AI Assist documentation
 
 This folder contains durable project documentation. Keep these notes aligned with the implementation and update the relevant pages when architecture, behavior, or backend contracts change.
 

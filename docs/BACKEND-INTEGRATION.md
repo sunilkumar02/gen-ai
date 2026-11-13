@@ -1,24 +1,50 @@
 # Backend integration
 
-The frontend is intentionally ready for API integration, but no backend endpoint or payload contract is assumed. Confirm the schema and authentication approach with the backend before implementing feature requests.
-
 ## Configuration
 
-Set `NEXT_PUBLIC_API_BASE_URL` in `.env.local` to the backend API base URL. `.env.example` contains a local example. Only use `NEXT_PUBLIC_` for values that are safe to expose to every browser user; secrets and privileged credentials must remain on the backend.
+Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` in `.env.local`, without `/api`. The local `.env.local` is configured for this backend. Without configuration the shared API client uses relative `/api` requests; no same-origin login route is implemented. Restart the development server after changing environment values. Only browser-safe values belong in `NEXT_PUBLIC_*` variables.
+
+The backend must accept cross-origin JSON POST requests and preflight requests from the frontend origin (usually `http://localhost:3000`). CORS configuration belongs to the backend; the frontend does not bypass it. Use HTTPS outside local development: Base64 is reversible encoding, not encryption.
+
+## Login contract
+
+`src/lib/api/auth.ts` implements `loginUser(username, password)` using the shared API client. It trims the username, preserves password bytes, encodes the password as UTF-8 Base64, and sends:
+
+```http
+POST /auth/login
+Content-Type: application/json
+```
+
+```json
+{
+  "username": "sample-user",
+  "password": "<UTF-8 Base64 encoded password>"
+}
+```
+
+The payload keys are `username` and `password`. A successful response is a top-level user object:
+
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "email": "sample@example.com",
+  "name": "Sample User",
+  "created_at": "2026-11-13T10:22:47.402Z",
+  "updated_at": "2026-11-13T10:22:47.402Z"
+}
+```
+
+The API module validates all five nonempty string fields and timestamps at runtime, copies only documented fields, and rejects invalid JSON, malformed success objects, and empty responses. HTTP 403 (and 401) displays a credential error. Network/CORS failures and other server failures display actionable errors. The form disables duplicate submissions while loading.
+
+The chat store holds returned user details in memory and opens chat only after successful validation. It does not persist passwords, Base64 passwords, user details, or tokens. Only conversation history is stored locally, partitioned by backend user ID. Old prototype sessions cannot restore access. Reloading requires login again because the supplied contract has no session-check, logout, refresh, cookie, or token behavior. Backend authorization must protect any future authenticated API endpoints.
 
 ## Request boundary
 
-Use `apiRequest<T>()` from `src/lib/api/client.ts` for JSON requests. It centralizes URL construction and raises `ApiError` for network failures, non-success HTTP responses, and invalid JSON responses. Add feature-specific modules under `src/lib/api/` when contracts are known, for example an auth service or chat service. UI components should call those modules through feature logic rather than construct requests directly.
+Keep requests behind `apiRequest<T>()` in `src/lib/api/client.ts`. It centralizes JSON transport and raises `ApiError` for network, HTTP, and invalid JSON failures. Feature API modules validate their own payload contracts and keep transport out of UI components. Shared auth contracts live in `src/types/auth.ts`.
 
-The generic response type is compile-time guidance, not runtime schema validation. Add runtime validation when contracts and the project's validation approach are agreed.
+## Remaining integration
 
-## Integration checklist
-
-1. Define endpoint paths, request/response types, error formats, and pagination/streaming behavior with the backend.
-2. Replace prototype login with the agreed authentication flow. Do not trust a client-provided email as user identity.
-3. Decide how credentials or tokens are issued, stored, refreshed, and revoked. Do not place secrets in `NEXT_PUBLIC_*` variables or persist sensitive credentials in Zustand/localStorage without an explicit security design.
-4. Add typed feature API functions under `src/lib/api/` and keep transport concerns out of React components.
-5. Replace the local mock assistant response with the backend chat flow. Preserve loading, retry, and visible error states; account for cancellation and streaming if supported.
-6. Decide whether the backend or local UI owns conversation history. Remove or migrate local prototype data deliberately; do not imply local storage syncs across devices.
-7. Add tests for successful responses, API errors, unauthorized access, and malformed payloads.
-8. Update this document and [Architecture](./ARCHITECTURE.md) to reflect the implemented contracts and security model.
+- Confirm session lifecycle, token/cookie handling, expiration, server-side logout, and a session-validation endpoint before restoring logins across reloads.
+- Define the chat endpoint, streaming behavior, and server-authorized conversation ownership before replacing `src/lib/chat/mock-assistant.ts`.
+- Decide whether history should stay browser-local or move to the backend, and migrate local histories deliberately.
+- Run `npm test` for mocked login success, Unicode encoding, failures, malformed responses, session gating, and per-user history checks. Live verification needs a running backend and valid test credentials.

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { loginUser } from "@/lib/api/auth";
 import { getMockAssistantReply } from "@/lib/chat/mock-assistant";
 import type {
   ChatMessage,
@@ -14,7 +15,8 @@ type ChatStore = {
   hasHydrated: boolean;
   storageError: string | null;
   setHasHydrated: (hasHydrated: boolean) => void;
-  signIn: (displayName: string, email: string) => void;
+  isSigningIn: boolean;
+  signIn: (username: string, password: string) => Promise<void>;
   signOut: () => void;
   createConversation: () => void;
   selectConversation: (conversationId: string) => void;
@@ -26,7 +28,9 @@ const emptyWorkspace = (): UserWorkspace => ({
   activeConversationId: null,
 });
 
-const getWorkspaceKey = (email: string) => email.trim().toLowerCase();
+const getWorkspaceKey = (userId: string) => `user:${userId}`;
+
+let loginAttempt = 0;
 
 const createId = () => crypto.randomUUID();
 
@@ -38,7 +42,7 @@ const updateCurrentWorkspace = (
     return state;
   }
 
-  const key = getWorkspaceKey(state.user.email);
+  const key = getWorkspaceKey(state.user.id);
   const workspace = state.workspaces[key] ?? emptyWorkspace();
 
   return {
@@ -56,24 +60,35 @@ export const useChatStore = create<ChatStore>()(
       workspaces: {},
       hasHydrated: false,
       storageError: null,
+      isSigningIn: false,
       setHasHydrated: (hasHydrated) => set({ hasHydrated }),
-      signIn: (displayName, email) => {
-        const normalizedEmail = getWorkspaceKey(email);
-        const user: UserProfile = {
-          id: normalizedEmail,
-          displayName: displayName.trim(),
-          email: normalizedEmail,
-        };
-
-        set((state) => ({
-          user,
-          workspaces: {
-            ...state.workspaces,
-            [normalizedEmail]: state.workspaces[normalizedEmail] ?? emptyWorkspace(),
-          },
-        }));
+      signIn: async (username, password) => {
+        const attempt = ++loginAttempt;
+        set({ user: null, isSigningIn: true });
+        try {
+          const details = await loginUser(username, password);
+          if (attempt !== loginAttempt) return;
+          const user: UserProfile = {
+            ...details,
+            displayName: details.name,
+            username: username.trim(),
+          };
+          const workspaceKey = getWorkspaceKey(user.id);
+          set((state) => ({
+            user,
+            workspaces: {
+              ...state.workspaces,
+              [workspaceKey]: state.workspaces[workspaceKey] ?? emptyWorkspace(),
+            },
+          }));
+        } finally {
+          if (attempt === loginAttempt) set({ isSigningIn: false });
+        }
       },
-      signOut: () => set({ user: null }),
+      signOut: () => {
+        loginAttempt += 1;
+        set({ user: null, isSigningIn: false });
+      },
       createConversation: () =>
         set((state) =>
           updateCurrentWorkspace(state, (workspace) => {
@@ -153,11 +168,20 @@ export const useChatStore = create<ChatStore>()(
         ),
     }),
     {
+      // Retain the original key so existing browser conversations remain available.
       name: "aster-chat-workspace",
+      version: 2,
+      // Keep old history, but never restore a prototype login as an API session.
+      migrate: (persistedState) => ({
+        workspaces: (persistedState as { workspaces?: Record<string, UserWorkspace> }).workspaces ?? {},
+      }),
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        user: state.user,
-        workspaces: state.workspaces,
+      partialize: (state) => ({ workspaces: state.workspaces }),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        workspaces: (persistedState as { workspaces?: Record<string, UserWorkspace> } | undefined)?.workspaces ?? {},
+        user: null,
+        isSigningIn: false,
       }),
       onRehydrateStorage: () => (state, error) => {
         if (error) {
@@ -180,6 +204,6 @@ export function selectCurrentWorkspace(state: ChatStore): UserWorkspace {
   }
 
   return (
-    state.workspaces[getWorkspaceKey(state.user.email)] ?? emptyWorkspace()
+    state.workspaces[getWorkspaceKey(state.user.id)] ?? emptyWorkspace()
   );
 }

@@ -1,7 +1,9 @@
-export type UserProfile = {
+import type { AuthUser } from "@/types/auth";
+
+export type UserProfile = AuthUser & {
   id: string;
   displayName: string;
-  email: string;
+  username: string;
 };
 
 export type ChatMessage = {
